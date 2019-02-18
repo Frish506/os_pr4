@@ -68,8 +68,10 @@ void getTheInp() {
     if(i>=5) {
         printf("TOO MANY ARGS FUCKER\n");
     }
-
-    if(!strcmp(instructType, "map")) {
+    else if (i<=3) {
+        printf("NOT ENOUGH ARGS CMON BRO YOU CAN DO BETTER THAN THIS\n");
+    }
+    else if(!strcmp(instructType, "map")) {
         mapPage(procID, virtAddr, val);
     }
     else if(!strcmp(instructType, "store")) {
@@ -77,6 +79,9 @@ void getTheInp() {
     }
     else if(!strcmp(instructType, "load")) {
         storeOrLoadData(procID, virtAddr, val, 1);
+    }
+    else if(!strcmp(instructType, "quit")) {
+        quit = 1;
     }
     else {
         printf("We didn't recognize that instruction sweetheart. Try again\n");
