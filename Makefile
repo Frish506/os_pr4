@@ -2,7 +2,7 @@
 all: memManager
 
 memManager:
-	gcc memManager.c -o memManager
+	gcc memManager.c -g -o memManager
 
 clean:
 	rm memManager
