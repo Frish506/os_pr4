@@ -13,8 +13,7 @@ struct pageTable { //Don't actually use this but it's a representation of the pa
 void getTheInp();
 int addPage();
 void mapPage(int pID, unsigned int virtAdd, int valid);
-void storeData(int pID, unsigned int virtAdd, int value);
-void loadData(int pID, unsigned int virtAdd);
+void storeOrLoadData(int pID, unsigned int virtAdd, int value, int storeOrLoad); //Condensed into one function b/c all but 2 lines are the same. For storeOrLoad: 0 is store, 1 is load
 int* decToBin(unsigned int virtAdd);
 int binToDec(int * binary, int binSize);
 
@@ -42,19 +41,16 @@ void getTheInp() {
 
     char theInput[128];
     fgets(theInput, 128, stdin);
-    printf("Got the input\n");
     int i = 0; // index to store things
     int procID;
     char instructType[10];
     int virtAddr, val;
     char *token = strtok (theInput, " "); // token is a space
 
-    printf("Beginning parsing\n");
     while (token != NULL) { //before null terminator
         switch(i) {
             case 0:
                 procID = atoi(token);
-                printf("Got the PID %d\n", procID);
                 break;
             case 1:
                 strcpy(instructType, token);
@@ -77,10 +73,10 @@ void getTheInp() {
         mapPage(procID, virtAddr, val);
     }
     else if(!strcmp(instructType, "store")) {
-        storeData(procID, virtAddr, val);
+        storeOrLoadData(procID, virtAddr, val, 0);
     }
     else if(!strcmp(instructType, "load")) {
-
+        storeOrLoadData(procID, virtAddr, val, 1);
     }
     else {
         printf("We didn't recognize that instruction sweetheart. Try again\n");
@@ -149,7 +145,7 @@ void mapPage(int pID, unsigned int virtAdd, int valid) {
     printf("Mapped virtual address %d (page %d) into physical frame %d\n", virtAdd, pageNum, physPageFrame);
 }
 
-void storeData(int pID, unsigned int virtAdd, int value) {
+void storeOrLoadData(int pID, unsigned int virtAdd, int value, int storeOrLoad) {
     int thePageTableIndex = pageTableLoc[pID];
 
     int *convertedAddr;
@@ -171,8 +167,17 @@ void storeData(int pID, unsigned int virtAdd, int value) {
 
     int pageLocation = memory[thePageTableIndex+pageNum] * 16;
     int insertionLocation = pageLocation + byteAdd;
-    memory[insertionLocation] = value;
-    printf("Inserted at %d the value %d\n", insertionLocation, value);
+    if(!storeOrLoad) {
+        memory[insertionLocation] = value;
+        printf("Stored value %d at virtual address %d (physical address %d)\n", value, virtAdd, insertionLocation);
+    }
+    else {
+        int value = memory[insertionLocation];
+        if(value != -1 || value != -2) {
+            printf("The value %d at virtual address %d (physical address %d)\n", value, virtAdd, insertionLocation);
+        }
+    }
+
 }
 
 int* decToBin(unsigned int virtAdd) {
