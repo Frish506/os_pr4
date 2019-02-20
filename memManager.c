@@ -11,17 +11,18 @@
 // };
 
 void getTheInp();
-int addPage();
-void mapPage(int pID, unsigned int virtAdd, int valid);
-void storeOrLoadData(int pID, unsigned int virtAdd, int value, int storeOrLoad); //Condensed into one function b/c all but 2 lines are the same. For storeOrLoad: 0 is store, 1 is load
+int addPage(int pID);
+void manipulatePage(int pID, unsigned int virtAdd, int value, int mapStoreLoad);
 int* decToBin(unsigned int virtAdd);
 int binToDec(int * binary, int binSize);
 
 //Page has the physical reference to memory, which is an index in the memory array
 unsigned char memory[64]; //'e' when empty, 'p' when page exists but no data
 static unsigned int PAGE_SIZE = 16;
-int pageTableLoc[4];
-int freeList[4];
+int pageTableLocIndex[4];//Each slot reps the process pID and the value within the slot is the physical page that processes's table is in
+                     // Value is -1 if doesn't exist.
+                     //If the value is 5, the pt exists but is swapped out.
+int freeList[4]; //Reps the physical pages by slot. Val is 0 if page frame is empty. More than 1 it is full and val reps age for eviction purposes
 
 
 int main() {
@@ -31,7 +32,7 @@ int main() {
     }
     int j;
     for(j = 0; j<4; j++) {
-        pageTableLoc[j] = -1;//initialize to all not existing
+        pageTableLocIndex[j] = -1;//initialize to all not existing
         freeList[j] = 0;
     }
     getTheInp();
@@ -82,13 +83,13 @@ void getTheInp() {
             printf("Error: read write permission can only be 0 or 1\n");
             getTheInp();
         }
-        mapPage(procID, virtAddr, val);
+        manipulatePage(procID, virtAddr, val, 0);
     }
     else if(!strcmp(instructType, "store")) {
-        storeOrLoadData(procID, virtAddr, val, 0);
+        manipulatePage(procID, virtAddr, val, 1);
     }
     else if(!strcmp(instructType, "load")) {
-        storeOrLoadData(procID, virtAddr, val, 1);
+        manipulatePage(procID, virtAddr, val, 2);
     }
     else if(!strcmp(instructType, "quit")) {
         quit = 1;
@@ -99,23 +100,28 @@ void getTheInp() {
     getTheInp();//done with instructions so ask for new ones
 }
 
-int addPage() {
+int addPage(int pID) { //pID is if we are an adding a table. If not it's -1
     int pageLocation;
     int pageCount = 0;
     int oldestPage = 0;
     int oldestPageLoc = 0;
+    int secondOldestPageLoc = 0;
     for(pageLocation = 0; pageLocation<4; pageLocation++) {
         if(freeList[pageLocation] > 0) { //If the page exists
             freeList[pageLocation]++; //Increment age
             if(oldestPage<freeList[pageLocation]) {
                 oldestPage = freeList[pageLocation];
+                secondOldestPageLoc = oldestPageLoc;
                 oldestPageLoc = pageLocation;
             }
             pageCount++; //Increment page count
         }
     }
     if(pageCount == 4) { //If memory is full, evict and replace
-        printf("Memory is full homie");
+        printf("Memory is full homie\n");
+        //TODO - Check if it's a page table or page
+
+
         unsigned char pageHolder[16];
         int j;
         int oldestPageIndex = oldestPageLoc*16;
@@ -128,7 +134,7 @@ int addPage() {
         int a;
         for(int a = 0; a<4; a++) {
             procIdentity[0] = a; //Just do this every time because yeah
-            int currPageTabLoc = pageTableLoc[a]*16;
+            int currPageTabLoc = pageTableLocIndex[a];
             int b;
             for(b = 0; b<3; b++) {
                 if(memory[currPageTabLoc+b] == oldestPageLoc) {
@@ -140,20 +146,25 @@ int addPage() {
                 break;
             }
         }
-        printf("Got the thang");
+        printf("Got the thang\n");
+        printf("The process is %d in is virtual page %d\n", procIdentity[0], procIdentity[1]);
         FILE *mem;
         mem = fopen("Memory_simulator.txt", "a");
         int c = 'x';
         fputc(c, mem);
+        printf("Put in the x\n");
         fputs(procIdentity, mem);
+        printf("Put in the process identity\n");
         fputs(pageHolder, mem);
+        printf("Put in the page holder\n");
         fclose(mem);
+        printf("Cosed the file\n");
         //Write free list that the page is empty, so it will write over it
         freeList[oldestPageLoc] = 0;
     }
 
 
-    for(pageLocation = 0; pageLocation<4; pageLocation++) {
+    for(pageLocation = 0; pageLocation<4; pageLocation++) { //Updating the free list
         if(freeList[pageLocation] == 0) {
             freeList[pageLocation] = 1;
             pageLocation = pageLocation*16;
@@ -167,7 +178,7 @@ int addPage() {
     return pageLocation;
 }
 
-void mapPage(int pID, unsigned int virtAdd, int valid) {
+void manipulatePage(int pID, unsigned int virtAdd, int value, int mapStoreLoad) {
     int *convertedAddr;
     convertedAddr = decToBin(virtAdd); //Get the virtual address in binary
     int pageNumberBinary[2];
@@ -177,83 +188,116 @@ void mapPage(int pID, unsigned int virtAdd, int valid) {
         if(z<2) { pageNumberBinary[z] = convertedAddr[z]; }
         else { offset[z-2] = convertedAddr[z]; }
     }
-    int pageNum = binToDec(pageNumberBinary, 2); //The page number relevant to the process (0-3 or)
+    int pageNum = binToDec(pageNumberBinary, 2); //The page number relevant to the process (0-2)
     int byteAdd = binToDec(offset, 4); //The actual place within the page
 
-    // printf("Have pID %d, virtAdd %d, valid %d\n", pID, virtAdd, valid);
-    // printf("pageNum was just converted to %d and the byteOffset is %d\n", pageNum, byteAdd);
-
-    //addPage() should be swapping out pages and updating their respective page tables
-    //Now we have the two numbers we need to actually map the page
-    if(pageTableLoc[pID] == -1) { //If the page table doesn't exist make a new page
-        pageTableLoc[pID] = addPage(); //Make the new page and return its location
-        printf("Put page table for pID %d into physical frame %d\n", pID, pageTableLoc[pID]%(16-1));
-    }
-
-    int thePageTableIndex = pageTableLoc[pID]; //Get the index of the page table for this process
-
-    if(pageNum > 2) { //TODO Change for evicting?
+    if (pageNum > 2) { //Process can have 3 pages max
         printf("Can't fit page in\n"); //Max number of 16 byte pages with 64 byte space (3)
         return;
     }
-    if(memory[thePageTableIndex + pageNum] != 'p') { //Check if the page already exists. If so check to update write bit
-        if(memory[thePageTableIndex + pageNum + 3] == valid) {
-            printf("Virtual page %d for pID %d already mapped with rw_bit=%d\n", pageNum, pID, valid); //Page already exists
+
+    //TODO - First check if process has already been created. If not you're good go along. If it has go to second
+    //TODO - Second check if the page table is in. If not swap it in
+    //TODO - Third check page is in by checking within the page table. If not swap it in
+    char pageTableReplace[16];
+    pageTableReplace[0] = -1;
+    if(pageTableLocIndex[pID] == 100) { //Grab page table from file
+        char buf[200];
+        FILE *mem;
+        mem = fopen("Memory_simulator.txt", "a");
+        fgets(buf, 200, mem);
+        int q;
+        for(q = 0; q<200; q++) {
+            if(buf[q] == 'x') {
+                if(buf[q+1] == pID && buf[q+2] == -1) {
+                    buf[q] = '*'; //Replace the x with a star
+                    q+=3;
+                    break;
+                }
+            }
         }
-        else {
-            memory[thePageTableIndex + pageNum + 3] = valid;
-            printf("Updating permissions for virtual page %d (physical frame %d)\n", pageNum, pageTableLoc[pID]%(16-1));
-        }
-        return;
-    }
-    //So now we've got the page table made for the process (assuming one didn't already exist) and now we are going to add a page
-
-    int pageLoc = addPage(); //Make the actual page
-    int physPageFrame = pageLoc%(16-1); //Gets the physical page frame #
-    memory[thePageTableIndex+pageNum] = physPageFrame; //Puts in the page table the page frame # of which the page is at
-
-    //Make sure valid bit is set
-    memory[thePageTableIndex+pageNum+3] = valid;
-    printf("Mapped virtual address %d (page %d) into physical frame %d\n", virtAdd, pageNum, physPageFrame);
-}
-
-void storeOrLoadData(int pID, unsigned int virtAdd, int value, int storeOrLoad) {
-    int thePageTableIndex = pageTableLoc[pID];
-
-    int *convertedAddr;
-    convertedAddr = decToBin(virtAdd); //Get the virtual address in binary
-    int pageNumberBinary[2];
-    int offset[4];
-    int z;
-    for(z = 0; z < 6; z++) { //Get the two different portions of the virt addr to convert to decimal
-        if(z<2) { pageNumberBinary[z] = convertedAddr[z]; }
-        else { offset[z-2] = convertedAddr[z]; }
-    }
-    int pageNum = binToDec(pageNumberBinary, 2); //The page number relevent to the process (0-3 or)
-    int byteAdd = binToDec(offset, 4); //The actual place within the page
-
-    if(memory[thePageTableIndex+pageNum+3] == 0) { //If the table has the value of read only
-        printf("Error: Table set to READ ONLY\n");
-        return;
-    }
-
-    int pageLocation = memory[thePageTableIndex+pageNum] * 16;
-    int insertionLocation = pageLocation + byteAdd;
-    
-    if(!storeOrLoad) {//store
-        memory[insertionLocation] = value;
-        printf("Stored value %d at virtual address %d (physical address %d)\n", value, virtAdd, insertionLocation);
-    }
-    else {//load
-        
-        if(memory[insertionLocation] != 'p' && memory[insertionLocation] != 'e') {
-            printf("The value %d at virtual address %d (physical address %d)\n", memory[insertionLocation], virtAdd, insertionLocation);
-        }
-        else{//nothing to load
-            printf("No byte has been stored at virtual address %d\n", virtAdd);
+        int f;
+        for(f = 0; f<16; f++) {
+            pageTableReplace[f] = buf[q];
+            buf[q] = '*'; //Fill in the old thang with stars. File gonna get filled with stars
+            q++;
         }
     }
 
+    //TODO - Check if page is in. If not swap it out but make sure not swapping out the page table
+    char pageReplace[16];
+    pageReplace[0] = -1;
+
+
+    if(mapStoreLoad == 0) { //Mapping!
+        //Now we have the two numbers we need to actually map the page
+        if (pageTableLocIndex[pID] == -1 || pageTableLocIndex[pID] == 100) { //If the page table doesn't exist make a new page
+            pageTableLocIndex[pID] = addPage(pID); //Make the new page and return its location
+            printf("Put page table for pID %d into physical frame %d\n", pID, pageTableLocIndex[pID] % (16 - 1));
+        }
+
+        int thePageTableIndex = pageTableLocIndex[pID]; //Get the index of the page table for this process
+
+        if(pageTableReplace[0] != -1) { //If inserting the page table back in, insert into that page we just allocated
+            int f;
+            for(f = 0; f<16; f++) {
+                memory[thePageTableIndex+f] = pageTableReplace[f];
+            }
+        }
+
+
+        if (memory[thePageTableIndex + pageNum] != 'p') { //Check if the page already exists. If so check to update write bit
+            if (memory[thePageTableIndex + pageNum + 3] == value) {
+                printf("Virtual page %d for pID %d already mapped with rw_bit=%d\n", pageNum, pID, value); //Page already exists
+            } else {
+                memory[thePageTableIndex + pageNum + 3] = value;
+                printf("Updating permissions for virtual page %d (physical frame %d)\n", pageNum, pageTableLocIndex[pID] % (16 - 1));
+            }
+            return;
+        }
+        //So now we've got the page table made for the process (assuming one didn't already exist) and now we are going to add a page
+
+        int pageLoc = addPage(-1); //Make the actual page
+        int physPageFrame = pageLoc % (16 - 1); //Gets the physical page frame #
+        memory[thePageTableIndex + pageNum] = physPageFrame; //Puts in the page table the page frame # of which the page is at
+
+        //Make sure valid bit is set
+        memory[thePageTableIndex + pageNum + 3] = value;
+        printf("Mapped virtual address %d (page %d) into physical frame %d\n", virtAdd, pageNum, physPageFrame);
+    }
+
+    else if(pageTableLocIndex[pID]>-1){//Store or load
+        if(memory[pageTableLocIndex[pID]+pageNum] == 'p') {
+            printf("No page for that process there\n");
+            return;
+        }
+        int thePageTableIndex = pageTableLocIndex[pID]; //Get the index of the page table for this process
+
+        if(memory[thePageTableIndex+pageNum+3] == 0) { //If the table has the value of read only
+            printf("Error: Table set to READ ONLY\n");
+            return;
+        }
+        int pageLocation = memory[thePageTableIndex+pageNum] * 16;
+        int insertionLocation = pageLocation + byteAdd;
+
+        if(mapStoreLoad == 1) {//store
+            memory[insertionLocation] = value;
+            printf("Stored value %d at virtual address %d (physical address %d)\n", value, virtAdd, insertionLocation);
+        }
+
+        else {//load
+
+            if(memory[insertionLocation] != 'p' && memory[insertionLocation] != 'e') {
+                printf("The value %d at virtual address %d (physical address %d)\n", memory[insertionLocation], virtAdd, insertionLocation);
+            }
+            else{//nothing to load
+                printf("No byte has been stored at virtual address %d\n", virtAdd);
+            }
+        }
+    }
+    else{
+        printf("Couldn't do that one chief\n");
+    }
 }
 
 int* decToBin(unsigned int virtAdd) {
