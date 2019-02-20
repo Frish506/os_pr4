@@ -21,6 +21,7 @@ int binToDec(int * binary, int binSize);
 unsigned char memory[64]; //'e' when empty, 'p' when page exists but no data
 static unsigned int PAGE_SIZE = 16;
 int pageTableLoc[4];
+int freeList[4];
 
 
 int main() {
@@ -31,6 +32,7 @@ int main() {
     int j;
     for(j = 0; j<4; j++) {
         pageTableLoc[j] = -1;//initialize to all not existing
+        freeList[j] = 0;
     }
     getTheInp();
 }
@@ -98,9 +100,65 @@ void getTheInp() {
 }
 
 int addPage() {
-    int pageLocation = 0;
-    while(memory[pageLocation] != 'e') { //Find first empty page
-        pageLocation++;
+    int pageLocation;
+    int pageCount = 0;
+    int oldestPage = 0;
+    int oldestPageLoc = 0;
+    for(pageLocation = 0; pageLocation<4; pageLocation++) {
+        if(freeList[pageLocation] > 0) { //If the page exists
+            freeList[pageLocation]++; //Increment age
+            if(oldestPage<freeList[pageLocation]) {
+                oldestPage = freeList[pageLocation];
+                oldestPageLoc = pageLocation;
+            }
+            pageCount++; //Increment page count
+        }
+    }
+    if(pageCount == 4) { //If memory is full, evict and replace
+        printf("Memory is full homie");
+        unsigned char pageHolder[16];
+        int j;
+        int oldestPageIndex = oldestPageLoc*16;
+        for(j = oldestPageIndex; j < oldestPageIndex + 16; j++) { //Copy over the page
+            pageHolder[j] = memory[j];
+        }
+        //Find the corresponding process and the virtual page number that the page represents
+        char procIdentity[2]; //First entry is the process number, the second is the virtual page number within the process
+        procIdentity[1] = -1;
+        int a;
+        for(int a = 0; a<4; a++) {
+            procIdentity[0] = a; //Just do this every time because yeah
+            int currPageTabLoc = pageTableLoc[a]*16;
+            int b;
+            for(b = 0; b<3; b++) {
+                if(memory[currPageTabLoc+b] == oldestPageLoc) {
+                    procIdentity[1] = b;
+                    memory[currPageTabLoc+b+6] = 1; //Set the bit letting the page table know that page is evicted
+                }
+            }
+            if(procIdentity[1] != -1) {
+                break;
+            }
+        }
+        printf("Got the thang");
+        FILE *mem;
+        mem = fopen("Memory_simulator.txt", "a");
+        int c = 'x';
+        fputc(c, mem);
+        fputs(procIdentity, mem);
+        fputs(pageHolder, mem);
+        fclose(mem);
+        //Write free list that the page is empty, so it will write over it
+        freeList[oldestPageLoc] = 0;
+    }
+
+
+    for(pageLocation = 0; pageLocation<4; pageLocation++) {
+        if(freeList[pageLocation] == 0) {
+            freeList[pageLocation] = 1;
+            pageLocation = pageLocation*16;
+            break;
+        }
     }
     int i;
     for(i = pageLocation; i < pageLocation + 16; i++) { //'p' is empty page
@@ -125,24 +183,27 @@ void mapPage(int pID, unsigned int virtAdd, int valid) {
     // printf("Have pID %d, virtAdd %d, valid %d\n", pID, virtAdd, valid);
     // printf("pageNum was just converted to %d and the byteOffset is %d\n", pageNum, byteAdd);
 
+    //addPage() should be swapping out pages and updating their respective page tables
     //Now we have the two numbers we need to actually map the page
-    if(pageTableLoc[pID] == -1) { //If the page table doesn't exist
-        pageTableLoc[pID] = addPage();
+    if(pageTableLoc[pID] == -1) { //If the page table doesn't exist make a new page
+        pageTableLoc[pID] = addPage(); //Make the new page and return its location
         printf("Put page table for pID %d into physical frame %d\n", pID, pageTableLoc[pID]%(16-1));
-    }
-    else {
-        printf("Already a process made\n");
-        return;
     }
 
     int thePageTableIndex = pageTableLoc[pID]; //Get the index of the page table for this process
 
-    if(pageNum > 3) { //TODO Change for evicting?
+    if(pageNum > 2) { //TODO Change for evicting?
         printf("Can't fit page in\n"); //Max number of 16 byte pages with 64 byte space (3)
         return;
     }
-    if(memory[thePageTableIndex + pageNum] != 'p') { //TODO Change for evicting?
-        printf("Page already at index %d for pID %d\n", pageNum, pID); //Page already exists
+    if(memory[thePageTableIndex + pageNum] != 'p') { //Check if the page already exists. If so check to update write bit
+        if(memory[thePageTableIndex + pageNum + 3] == valid) {
+            printf("Virtual page %d for pID %d already mapped with rw_bit=%d\n", pageNum, pID, valid); //Page already exists
+        }
+        else {
+            memory[thePageTableIndex + pageNum + 3] = valid;
+            printf("Updating permissions for virtual page %d (physical frame %d)\n", pageNum, pageTableLoc[pID]%(16-1));
+        }
         return;
     }
     //So now we've got the page table made for the process (assuming one didn't already exist) and now we are going to add a page
