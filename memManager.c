@@ -88,6 +88,9 @@ void getTheInp() {
     else if(!strcmp(instructType, "load")) {
         storeOrLoadData(procID, virtAddr, val, 1);
     }
+    else if(!strcmp(instructType, "quit")) {
+        quit = 1;
+    }
     else {
         printf("Error: instructions can only be 'map', 'store', or 'load'\n");
     }
