@@ -5,10 +5,10 @@
 #include <math.h>
 
 
-struct pageTable { //Don't actually use this but it's a representation of the page table
-    int pageFrameNumbers[4]; //4 ints representing physical pages.
-    int protectionBits[4]; //Representing respective pages' protection bits
-};
+// struct pageTable { //Don't actually use this but it's a representation of the page table
+//     int pageFrameNumbers[4]; //4 ints representing physical pages.
+//     int protectionBits[4]; //Representing respective pages' protection bits
+// };
 
 void getTheInp();
 int addPage();
@@ -18,19 +18,19 @@ int* decToBin(unsigned int virtAdd);
 int binToDec(int * binary, int binSize);
 
 //Page has the physical reference to memory, which is an index in the memory array
-char memory[64]; //There can be a max //USng negatives -2 to specify empty and -1 if page there but no data. What do b/c instructions says it's unsigned
+unsigned char memory[64]; //'e' when empty, 'p' when page exists but no data
 static unsigned int PAGE_SIZE = 16;
 int pageTableLoc[4];
 
 
 int main() {
     int i;
-    for(i = 0; i<320; i++) { //If there's nothing in the slot (ie empty page), the values of those bytes are -2
-        memory[i] = -2;
+    for(i = 0; i<64; i++) { //value of byte is 'e' when empty page
+        memory[i] = 'e';
     }
     int j;
     for(j = 0; j<4; j++) {
-        pageTableLoc[j] = -1;
+        pageTableLoc[j] = -1;//initialize to all not existing
     }
     getTheInp();
 }
@@ -45,8 +45,7 @@ void getTheInp() {
     int procID;
     char instructType[10];
     int virtAddr, val;
-    char *token = strtok (theInput, " "); // token is a space
-
+    char *token = strtok (theInput, ","); // token is a comma
     while (token != NULL) { //before null terminator
         switch(i) {
             case 0:
@@ -62,14 +61,25 @@ void getTheInp() {
                 val = atoi(token);
                 break;
         }
-        token = strtok (NULL, " ");
+        token = strtok (NULL, ",");
         i++;
     }
-    if(i>=5) {
-        printf("TOO MANY ARGS FUCKER\n");
+
+    if (i!=4){
+        printf("Error: args should be process_id,instruction_type,virtual_address, value\n");
+        getTheInp();
+    }
+    if (procID<0||procID>3||virtAddr<0||virtAddr>63||val<0||val>255){
+        printf("Error: ranges are [0,3] for process_id, [0,63] for virtual_address, [0,255] for value\n");
+        getTheInp();
     }
 
+    //check type of instruction
     if(!strcmp(instructType, "map")) {
+        if (val!=0 && val!=1){//only 0 or 1 are valid for permission
+            printf("Error: read write permission can only be 0 or 1\n");
+            getTheInp();
+        }
         mapPage(procID, virtAddr, val);
     }
     else if(!strcmp(instructType, "store")) {
@@ -79,21 +89,19 @@ void getTheInp() {
         storeOrLoadData(procID, virtAddr, val, 1);
     }
     else {
-        printf("We didn't recognize that instruction sweetheart. Try again\n");
+        printf("Error: instructions can only be 'map', 'store', or 'load'\n");
     }
-    if(!quit) {
-        getTheInp();
-    }
+    getTheInp();//done with instructions so ask for new ones
 }
 
 int addPage() {
     int pageLocation = 0;
-    while(memory[pageLocation] != -2) { //Find first empty page
+    while(memory[pageLocation] != 'e') { //Find first empty page
         pageLocation++;
     }
     int i;
-    for(i = pageLocation; i < pageLocation + 16; i++) { //empty page is filled with -1
-        memory[i] = -1;
+    for(i = pageLocation; i < pageLocation + 16; i++) { //'p' is empty page
+        memory[i] = 'p';
     }
     return pageLocation;
 }
@@ -108,11 +116,11 @@ void mapPage(int pID, unsigned int virtAdd, int valid) {
         if(z<2) { pageNumberBinary[z] = convertedAddr[z]; }
         else { offset[z-2] = convertedAddr[z]; }
     }
-    int pageNum = binToDec(pageNumberBinary, 2); //The page number relevent to the process (0-3 or)
+    int pageNum = binToDec(pageNumberBinary, 2); //The page number relevant to the process (0-3 or)
     int byteAdd = binToDec(offset, 4); //The actual place within the page
 
-    printf("Have pID %d, virtAdd %d, valid %d\n", pID, virtAdd, valid);
-    printf("pageNum was just converted to %d and the byteOffset is %d\n", pageNum, byteAdd);
+    // printf("Have pID %d, virtAdd %d, valid %d\n", pID, virtAdd, valid);
+    // printf("pageNum was just converted to %d and the byteOffset is %d\n", pageNum, byteAdd);
 
     //Now we have the two numbers we need to actually map the page
     if(pageTableLoc[pID] == -1) { //If the page table doesn't exist
@@ -130,7 +138,7 @@ void mapPage(int pID, unsigned int virtAdd, int valid) {
         printf("Can't fit page in\n"); //Max number of 16 byte pages with 64 byte space (3)
         return;
     }
-    if(memory[thePageTableIndex + pageNum] != -1) { //TODO Change for evicting?
+    if(memory[thePageTableIndex + pageNum] != 'p') { //TODO Change for evicting?
         printf("Page already at index %d for pID %d\n", pageNum, pID); //Page already exists
         return;
     }
@@ -161,20 +169,24 @@ void storeOrLoadData(int pID, unsigned int virtAdd, int value, int storeOrLoad) 
     int byteAdd = binToDec(offset, 4); //The actual place within the page
 
     if(memory[thePageTableIndex+pageNum+3] == 0) { //If the table has the value of read only
-        printf("Table set to READ ONLY\n");
+        printf("Error: Table set to READ ONLY\n");
         return;
     }
 
     int pageLocation = memory[thePageTableIndex+pageNum] * 16;
     int insertionLocation = pageLocation + byteAdd;
-    if(!storeOrLoad) {
+    
+    if(!storeOrLoad) {//store
         memory[insertionLocation] = value;
         printf("Stored value %d at virtual address %d (physical address %d)\n", value, virtAdd, insertionLocation);
     }
-    else {
-        int value = memory[insertionLocation];
-        if(value != -1 || value != -2) {
-            printf("The value %d at virtual address %d (physical address %d)\n", value, virtAdd, insertionLocation);
+    else {//load
+        
+        if(memory[insertionLocation] != 'p' && memory[insertionLocation] != 'e') {
+            printf("The value %d at virtual address %d (physical address %d)\n", memory[insertionLocation], virtAdd, insertionLocation);
+        }
+        else{//nothing to load
+            printf("No byte has been stored at virtual address %d\n", virtAdd);
         }
     }
 
